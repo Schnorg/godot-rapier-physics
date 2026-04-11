@@ -1718,10 +1718,8 @@ impl RapierBody {
                     // Fixes issue #398: negative scale breaking collision shapes.
                     for i in 0..self.base.get_shape_count() as usize {
                         if !self.base.state.shapes[i].disabled {
-                            self.base.update_shape_transform(
-                                &self.base.state.shapes[i],
-                                physics_engine,
-                            );
+                            self.base
+                                .update_shape_transform(&self.base.state.shapes[i], physics_engine);
                         }
                     }
                 }
