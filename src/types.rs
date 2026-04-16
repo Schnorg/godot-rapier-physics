@@ -1,8 +1,5 @@
 use godot::classes::*;
 use godot::prelude::*;
-#[cfg(feature = "dim2")]
-use rapier::math::Matrix;
-use rapier::math::Real;
 use rapier::math::Rotation;
 #[cfg(feature = "single")]
 pub type PackedFloatArray = PackedFloat32Array;
@@ -132,35 +129,26 @@ pub fn world_to_local_no_scale(transform: &Transform, world_pos: Vector) -> Vect
     transform_no_scale.affine_inverse() * world_pos
 }
 #[cfg(feature = "dim2")]
-pub fn transform_update(
-    transform: &Transform,
-    rotation: Rotation<Real>,
-    origin: Vector,
-) -> Transform {
-    let shear_matrix = get_shear_matrix(transform);
-    let shear_rotation_matrix = Matrix::<Real>::from(rotation) * shear_matrix;
-    let a = shear_rotation_matrix.column(0).normalize() * transform.scale().x;
-    let b = shear_rotation_matrix.column(1).normalize() * transform.scale().y;
-    Transform2D {
-        a: Vector2::new(a.x, a.y),
-        b: Vector2::new(b.x, b.y),
-        origin,
+pub fn transform_update(transform: &Transform, rotation: Rotation, origin: Vector) -> Transform {
+    let delta_rotation = rotation.angle() - transform.rotation();
+    let scale_x = transform.a.length();
+    let scale_y = transform.b.length();
+    let mut a = transform.a.rotated(delta_rotation);
+    let mut b = transform.b.rotated(delta_rotation);
+    if !scale_x.is_zero_approx() {
+        a *= scale_x / a.length();
     }
+    if !scale_y.is_zero_approx() {
+        b *= scale_y / b.length();
+    }
+    Transform2D { a, b, origin }
 }
 #[cfg(feature = "dim3")]
-pub fn transform_update(
-    transform: &Transform,
-    rotation: Rotation<Real>,
-    origin: Vector,
-) -> Transform {
+pub fn transform_update(transform: &Transform, rotation: Rotation, origin: Vector) -> Transform {
     use godot::builtin::Basis;
-    let quaternion = rotation.quaternion();
     let new_transform = Transform::new(
         Basis::from_quaternion(Quaternion::new(
-            quaternion.coords.x,
-            quaternion.coords.y,
-            quaternion.coords.z,
-            quaternion.coords.w,
+            rotation.x, rotation.y, rotation.z, rotation.w,
         )),
         origin,
     );
@@ -168,25 +156,19 @@ pub fn transform_update(
     new_transform.scaled_local(scale)
 }
 #[cfg(feature = "dim3")]
-pub fn transform_rotation_rapier(transform: &godot::builtin::Transform3D) -> Rotation<Real> {
-    use rapier::na::Vector4;
+pub fn transform_rotation_rapier(transform: &godot::builtin::Transform3D) -> Rotation {
     let quaternion = transform.basis.get_quaternion();
-    Rotation::from_quaternion(rapier::na::Quaternion {
-        coords: Vector4::new(quaternion.x, quaternion.y, quaternion.z, quaternion.w),
-    })
+    Rotation::from_xyzw(quaternion.x, quaternion.y, quaternion.z, quaternion.w)
 }
 #[cfg(feature = "dim2")]
-pub fn transform_rotation_rapier(transform: &godot::builtin::Transform2D) -> Rotation<Real> {
+pub fn transform_rotation_rapier(transform: &godot::builtin::Transform2D) -> Rotation {
     let angle = transform.rotation();
     Rotation::from_angle(angle)
 }
 #[cfg(feature = "dim3")]
-pub fn basis_to_rapier(basis: godot::builtin::Basis) -> Rotation<Real> {
-    use rapier::na::Vector4;
+pub fn basis_to_rapier(basis: godot::builtin::Basis) -> Rotation {
     let quaternion = basis.get_quaternion();
-    Rotation::from_quaternion(rapier::na::Quaternion {
-        coords: Vector4::new(quaternion.x, quaternion.y, quaternion.z, quaternion.w),
-    })
+    Rotation::from_xyzw(quaternion.x, quaternion.y, quaternion.z, quaternion.w)
 }
 pub fn vector_normalized(vector: Vector) -> Vector {
     if vector != Vector::ZERO {
@@ -206,16 +188,6 @@ pub fn variant_to_int(variant: &Variant) -> i32 {
         VariantType::INT => variant.to::<i32>(),
         _ => 0,
     }
-}
-#[cfg(feature = "dim2")]
-fn get_shear_matrix(transform: &Transform) -> Matrix<Real> {
-    let det_sign = transform.determinant().signum();
-    let minus_sin_skew = transform
-        .a
-        .normalized_or_zero()
-        .dot(det_sign * transform.b.normalized_or_zero());
-    let cos_skew = (1. - minus_sin_skew * minus_sin_skew).sqrt();
-    Matrix::new(1., minus_sin_skew, 0., cos_skew)
 }
 #[cfg(feature = "dim2")]
 #[cfg(test)]

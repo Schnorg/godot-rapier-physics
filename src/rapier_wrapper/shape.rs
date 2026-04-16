@@ -1,68 +1,55 @@
 use rapier::prelude::*;
 use types::Transform;
 
-use super::ANG_ZERO;
 use crate::rapier_wrapper::prelude::*;
 use crate::*;
-pub fn point_array_to_vec(pixel_data: &Vec<Vector<Real>>) -> Vec<Point<Real>> {
-    let mut vec = Vec::<Point<Real>>::with_capacity(pixel_data.len());
+pub fn point_array_to_vec(pixel_data: &Vec<Vector>) -> Vec<Vector> {
+    let mut vec = Vec::<Vector>::with_capacity(pixel_data.len());
     for point in pixel_data {
-        vec.push(Point::<Real> { coords: *point });
+        vec.push(*point);
     }
     vec
 }
-pub fn vec_to_point_array(pixel_data: &[Point<Real>]) -> Vec<Vector<Real>> {
-    let mut vec = Vec::<Vector<Real>>::with_capacity(pixel_data.len());
+pub fn vec_to_point_array(pixel_data: &[Vector]) -> Vec<Vector> {
+    let mut vec = Vec::<Vector>::with_capacity(pixel_data.len());
     for point in pixel_data {
-        vec.push(Vector::<Real>::from(point.coords));
+        vec.push(*point);
     }
     vec
 }
 #[derive(Copy, Clone, Debug)]
 pub struct ShapeInfo {
     pub handle: ShapeHandle,
-    pub transform: Isometry<Real>,
+    pub transform: Pose,
     #[cfg(feature = "dim2")]
     pub skew: Real,
-    pub scale: Vector<Real>,
+    pub scale: Vector,
 }
 #[cfg(feature = "dim2")]
 pub fn shape_info_from_body_shape(shape_handle: ShapeHandle, transform: Transform) -> ShapeInfo {
-    use nalgebra::Isometry2;
     ShapeInfo {
         handle: shape_handle,
-        transform: Isometry2::new(vector_to_rapier(transform.origin), transform.rotation()),
+        transform: Pose::from_parts(
+            vector_to_rapier(transform.origin),
+            Rotation::from_angle(transform.rotation()),
+        ),
         skew: transform.skew(),
         scale: vector_to_rapier(transform.scale()),
     }
 }
 #[cfg(feature = "dim3")]
 pub fn shape_info_from_body_shape(shape_handle: ShapeHandle, transform: Transform) -> ShapeInfo {
-    use nalgebra::Isometry3;
-    use nalgebra::Quaternion;
-    use nalgebra::Translation3;
     let quaternion = transform.basis.get_quaternion();
-    let rotation = Rotation::from_quaternion(Quaternion::new(
-        quaternion.w,
-        quaternion.x,
-        quaternion.y,
-        quaternion.z,
-    ));
-    let translation = Translation3::from(vector_to_rapier(transform.origin));
-    let isometry = Isometry3::from_parts(translation, rotation);
+    let rotation = Rotation::from_xyzw(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
     ShapeInfo {
         handle: shape_handle,
-        transform: isometry,
+        transform: Pose::from_parts(vector_to_rapier(transform.origin), rotation),
         scale: vector_to_rapier(transform.basis.get_scale()),
     }
 }
 impl PhysicsEngine {
     #[cfg(feature = "dim2")]
-    pub fn shape_create_convex_polyline(
-        &mut self,
-        points: &Vec<Vector<Real>>,
-        handle: ShapeHandle,
-    ) {
+    pub fn shape_create_convex_polyline(&mut self, points: &Vec<Vector>, handle: ShapeHandle) {
         let points_vec = point_array_to_vec(points);
         if let Some(shape_data) = SharedShape::convex_polyline_unmodified(points_vec) {
             self.insert_shape(shape_data, handle)
@@ -70,7 +57,7 @@ impl PhysicsEngine {
     }
 
     #[cfg(feature = "dim2")]
-    pub fn shape_get_convex_polyline_points(&self, handle: ShapeHandle) -> Vec<Vector<Real>> {
+    pub fn shape_get_convex_polyline_points(&self, handle: ShapeHandle) -> Vec<Vector> {
         if let Some(shape) = self.get_shape(handle)
             && let Some(shape) = shape.as_convex_polygon()
         {
@@ -82,7 +69,7 @@ impl PhysicsEngine {
     }
 
     #[cfg(feature = "dim3")]
-    pub fn shape_get_convex_polyline_points(&self, handle: ShapeHandle) -> Vec<Vector<Real>> {
+    pub fn shape_get_convex_polyline_points(&self, handle: ShapeHandle) -> Vec<Vector> {
         if let Some(shape) = self.get_shape(handle)
             && let Some(shape) = shape.as_convex_polyhedron()
         {
@@ -94,11 +81,7 @@ impl PhysicsEngine {
     }
 
     #[cfg(feature = "dim3")]
-    pub fn shape_create_convex_polyline(
-        &mut self,
-        points: &Vec<Vector<Real>>,
-        handle: ShapeHandle,
-    ) {
+    pub fn shape_create_convex_polyline(&mut self, points: &Vec<Vector>, handle: ShapeHandle) {
         let points_vec = point_array_to_vec(points);
         if let Some(shape_data) = SharedShape::convex_hull(&points_vec) {
             self.insert_shape(shape_data, handle)
@@ -106,48 +89,43 @@ impl PhysicsEngine {
     }
 
     #[cfg(feature = "dim2")]
-    pub fn shape_create_box(&mut self, size: Vector<Real>, handle: ShapeHandle) {
+    pub fn shape_create_box(&mut self, size: Vector, handle: ShapeHandle) {
         let shape = SharedShape::cuboid(0.5 * size.x, 0.5 * size.y);
         self.insert_shape(shape, handle);
     }
 
     #[cfg(feature = "dim3")]
-    pub fn shape_create_box(&mut self, size: Vector<Real>, handle: ShapeHandle) {
+    pub fn shape_create_box(&mut self, size: Vector, handle: ShapeHandle) {
         let shape = SharedShape::cuboid(0.5 * size.x, 0.5 * size.y, 0.5 * size.z);
         self.insert_shape(shape, handle);
     }
 
-    pub fn shape_get_box_size(&self, shape_handle: ShapeHandle) -> Vector<Real> {
+    pub fn shape_get_box_size(&self, shape_handle: ShapeHandle) -> Vector {
         if let Some(shape) = self.get_shape(shape_handle)
             && let Some(shape) = shape.as_cuboid()
         {
             return shape.half_extents;
         }
-        Vector::zeros()
+        Vector::ZERO
     }
 
-    pub fn shape_create_halfspace(
-        &mut self,
-        normal: Vector<Real>,
-        distance: Real,
-        handle: ShapeHandle,
-    ) {
-        let shape = SharedShape::halfspace(UnitVector::new_normalize(normal));
-        let shape_position = Isometry::new(normal * distance, ANG_ZERO);
+    pub fn shape_create_halfspace(&mut self, normal: Vector, distance: Real, handle: ShapeHandle) {
+        let shape = SharedShape::halfspace(normal.normalize_or_zero());
+        let shape_position = Pose::from_parts(normal * distance, Rotation::default());
         let shapes_vec = vec![(shape_position, shape)];
         let shape_compound = SharedShape::compound(shapes_vec);
         self.insert_shape(shape_compound, handle);
     }
 
-    pub fn shape_get_halfspace(&self, shape_handle: ShapeHandle) -> (Vector<Real>, Real) {
+    pub fn shape_get_halfspace(&self, shape_handle: ShapeHandle) -> (Vector, Real) {
         if let Some(shape) = self.get_shape(shape_handle)
             && let Some(shape) = shape.as_compound()
             && let Some(shape) = shape.shapes().first()
         {
-            let normal = shape.0.translation.vector;
-            return (normal.normalize(), normal.magnitude());
+            let normal = shape.0.translation;
+            return (normal.normalize_or_zero(), normal.length());
         }
-        (Vector::zeros(), 0.0)
+        (Vector::ZERO, 0.0)
     }
 
     pub fn shape_create_circle(&mut self, radius: Real, handle: ShapeHandle) {
@@ -202,42 +180,45 @@ impl PhysicsEngine {
         depth: i32,
         handle: ShapeHandle,
     ) {
-        use nalgebra::Vector3;
+        use rapier::parry::utils::Array2;
         let width = width as usize;
         let depth = depth as usize;
-        // Create the height matrix from the input heights
-        let original_heights = DMatrix::from_fn(width, depth, |i, j| heights[j * width + i]);
-        // Transpose the matrix to swap width and depth
-        let rotated_heights = original_heights.transpose();
+        let mut rotated_data = Vec::with_capacity(width * depth);
+        for j in 0..width {
+            for i in 0..depth {
+                rotated_data.push(heights[i * width + j]);
+            }
+        }
+        let rotated_heights = Array2::new(depth, width, rotated_data);
         // The new dimensions after rotating the heightmap
         let new_width = depth;
         let new_depth = width;
         // Create the shape with the rotated dimensions
         let shape = SharedShape::heightfield_with_flags(
             rotated_heights,
-            Vector3::new(new_depth as Real, 1.0, new_width as Real),
+            Vector::new(new_depth as Real, 1.0, new_width as Real),
             HeightFieldFlags::FIX_INTERNAL_EDGES,
         );
         self.insert_shape(shape, handle)
     }
 
     #[cfg(feature = "dim3")]
-    pub fn shape_get_heightmap(&self, shape_handle: ShapeHandle) -> (DMatrix<Real>, i32, i32) {
+    pub fn shape_get_heightmap(&self, shape_handle: ShapeHandle) -> (Vec<Real>, i32, i32) {
         if let Some(shape) = self.get_shape(shape_handle)
             && let Some(shape) = shape.as_heightfield()
         {
             let scale = shape.scale();
             let depth = scale.x as i32;
             let width = scale.z as i32;
-            return (shape.heights().clone(), depth, width);
+            return (shape.heights().data().to_vec(), depth, width);
         }
-        (DMatrix::default(), 0, 0)
+        (Vec::new(), 0, 0)
     }
 
     #[cfg(feature = "dim2")]
     pub fn shape_create_concave_polyline(
         &mut self,
-        points: &Vec<Vector<Real>>,
+        points: &Vec<Vector>,
         indices: Option<Vec<[u32; 2]>>,
         handle: ShapeHandle,
     ) {
@@ -253,7 +234,7 @@ impl PhysicsEngine {
     #[cfg(feature = "dim3")]
     pub fn shape_create_concave_polyline(
         &mut self,
-        points: &Vec<Vector<Real>>,
+        points: &Vec<Vector>,
         indices: Option<Vec<[u32; 3]>>,
         handle: ShapeHandle,
     ) {
@@ -287,7 +268,7 @@ impl PhysicsEngine {
     pub fn shape_get_concave_polyline(
         &self,
         shape_handle: ShapeHandle,
-    ) -> (&[Point<Real>], &[[u32; 2]]) {
+    ) -> (&[Vector], &[[u32; 2]]) {
         if let Some(shape) = self.get_shape(shape_handle)
             && let Some(shape) = shape.as_polyline()
         {
@@ -300,7 +281,7 @@ impl PhysicsEngine {
     pub fn shape_get_concave_polyline(
         &self,
         shape_handle: ShapeHandle,
-    ) -> (&[Point<Real>], &[[u32; 3]]) {
+    ) -> (&[Vector], &[[u32; 3]]) {
         if let Some(shape) = self.get_shape(shape_handle)
             && let Some(shape) = shape.as_trimesh()
         {
