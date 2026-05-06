@@ -53,6 +53,35 @@ extends HingeJoint3D
 		if is_inside_tree():
 			_update_ik_options()
 
+@export_group("Motor Position Targeting")
+
+@export var enable: bool = false:
+	set(value):
+		enable = value
+		if is_inside_tree():
+			_update_motor_position_options()
+# 		future @tool functionalit
+#		notify_property_list_changed()
+
+@export var target_angle: float = 0.0:
+	set(value):
+		target_angle = value
+		if is_inside_tree():
+			_update_motor_position_options()
+
+@export var stiffness: float = 0.0:
+	set(value):
+		stiffness = value
+		if is_inside_tree():
+			_update_motor_position_options()
+
+@export var damping: float = 0.0:
+	set(value):
+		damping = value
+		if is_inside_tree():
+			_update_motor_position_options()
+
+
 var _ik_constrained_axes: int = 7
 
 
@@ -62,6 +91,7 @@ func _init() -> void:
 func _ready() -> void:
 	_update_constrained_axes()
 	_update_ik_options()
+	_update_motor_position_options()
 
 func _physics_process(delta: float) -> void:
 	_solve_ik_for_target()
@@ -90,6 +120,22 @@ func _update_ik_options() -> void:
 		_ik_constrained_axes,
 		0.001,
 		0.001,
+	)
+
+func _update_motor_position_options() -> void:
+	if not is_inside_tree():
+		return
+	
+	var joint_rid := get_rid()
+	if not joint_rid.is_valid():
+		return
+	
+	RapierPhysicsServer3D.joint_set_motor_position_options(
+		joint_rid,
+		target_angle,
+		stiffness,
+		damping,
+		enable,
 	)
 
 func _update_constrained_axes() -> void:
