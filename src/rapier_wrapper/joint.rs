@@ -2,9 +2,11 @@ use godot::global::godot_error;
 use rapier::prelude::*;
 
 use crate::joints::rapier_joint_base::RapierJointType;
+#[cfg(feature = "dim3")]
+use crate::rapier_wrapper::joint::glamx::Quat;
 use crate::rapier_wrapper::prelude::*;
 impl PhysicsEngine {
-    // Using this in dim3 for motor position targeting for 3D #[cfg(feature = "dim2")]
+    #[cfg(feature = "dim2")]
     fn godot_spring_to_rapier_accel(stiffness: Real, damping: Real) -> (Real, Real) {
         // Godot stiffness is in N/m, convert to frequency: omega = sqrt(k/m)
         // For AccelerationBased, assume unit mass (m=1)
@@ -158,10 +160,8 @@ impl PhysicsEngine {
                     .motor_model(MotorModel::AccelerationBased);
             }
             if motor_position_enabled {
-                let (rapier_stiffness, rapier_damping) =
-                    Self::godot_spring_to_rapier_accel(motor_stiffness, motor_damping);
                 joint = joint
-                    .motor_position(motor_target_position, rapier_stiffness, rapier_damping)
+                    .motor_position(motor_target_position, motor_stiffness, motor_damping)
                     .motor_max_force(Real::MAX)
                     .motor_model(MotorModel::AccelerationBased);
             }
@@ -196,16 +196,18 @@ impl PhysicsEngine {
         self.body_wake_up(world_handle, body_handle_1, false);
         self.body_wake_up(world_handle, body_handle_2, false);
         if let Some(physics_world) = self.get_mut_world(world_handle) {
-            // Extract the hinge axis (X-axis) from the rotation matrices
-            // Rapier hinge axis is X, but godot is Z
-            let axis1_vec = axis_1 * Vector::Z;
-            let axis2_vec = axis_2 * Vector::Z;
+            // Rapier revolute hinge axis is X, but godot is Z
+            // Transforming poses from z to x so that we can use the simplified Rapier
+            // revolute joint functions in other parts of code
+            // (rather than setting up a GenericJoint with AngZ free axis)
+            let z_to_x =
+                Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), std::f32::consts::FRAC_PI_2);
+            let pose_1 = Pose::from_parts(anchor_1, axis_1 * z_to_x);
+            let pose_2 = Pose::from_parts(anchor_2, axis_2 * z_to_x);
             // Use GenericJointBuilder to set both local axes
             let mut joint = GenericJointBuilder::new(JointAxesMask::LOCKED_REVOLUTE_AXES)
-                .local_anchor1(anchor_1)
-                .local_anchor2(anchor_2)
-                .local_axis1(axis1_vec)
-                .local_axis2(axis2_vec)
+                .local_frame1(pose_1)
+                .local_frame2(pose_2)
                 .contacts_enabled(!disable_collision);
             if angular_limit_enabled {
                 joint = joint.limits(JointAxis::AngX, [angular_limit_lower, angular_limit_upper]);
@@ -214,14 +216,12 @@ impl PhysicsEngine {
                 joint = joint.motor_velocity(JointAxis::AngX, motor_target_velocity, 0.0);
             }
             if motor_position_enabled {
-                let (rapier_stiffness, rapier_damping) =
-                    Self::godot_spring_to_rapier_accel(motor_stiffness, motor_damping);
                 joint = joint
                     .motor_position(
                         JointAxis::AngX,
                         motor_target_position,
-                        rapier_stiffness,
-                        rapier_damping,
+                        motor_stiffness,
+                        motor_damping,
                     )
                     .motor_max_force(JointAxis::AngX, Real::MAX)
                     .motor_model(JointAxis::AngX, MotorModel::AccelerationBased);
@@ -368,10 +368,8 @@ impl PhysicsEngine {
                 joint.set_limits([angular_limit_lower, angular_limit_upper]);
             }
             if motor_position_enabled {
-                let (rapier_stiffness, rapier_damping) =
-                    Self::godot_spring_to_rapier_accel(motor_stiffness, motor_damping);
                 joint
-                    .set_motor_position(motor_target_position, rapier_stiffness, rapier_damping)
+                    .set_motor_position(motor_target_position, motor_stiffness, motor_damping)
                     .set_motor_max_force(Real::MAX)
                     .set_motor_model(MotorModel::AccelerationBased);
             }

@@ -206,7 +206,6 @@ macro_rules! make_rapier_server_godot_impl {
             }
 
             #[func]
-            /// Set custom motor position options for a specific joint.
             pub fn joint_set_motor_position_options(
                 joint: Rid,
                 target_pos: real,
@@ -217,14 +216,14 @@ macro_rules! make_rapier_server_godot_impl {
                 let physics_data = physics_data();
                 if let Some(RapierJoint::RapierRevoluteJoint(revolute)) =
                     physics_data.joints.get_mut(&joint)
-                //                if let Some(RapierJoint::RapierRevoluteJoint(revolute)) =
-                //                   physics_data.joints.get_mut(&joint)
                 {
-                    revolute.motor_target_position = target_pos;
-                    revolute.motor_stiffness = stiffness;
-                    revolute.motor_damping = damping;
-                    revolute.motor_position_enabled = enabled;
-                    revolute.set_motor_options(&mut physics_data.physics_engine);
+                    revolute.set_motor_position_options(
+                        &mut physics_data.physics_engine,
+                        target_pos,
+                        stiffness,
+                        damping,
+                        enabled,
+                    )
                 }
             }
 

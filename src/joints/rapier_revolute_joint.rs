@@ -25,10 +25,10 @@ pub struct RapierRevoluteJoint {
     angular_limit_enabled: bool,
     #[cfg(feature = "dim2")]
     softness: f32,
-    pub motor_target_position: f32,
-    pub motor_stiffness: f32,
-    pub motor_damping: f32,
-    pub motor_position_enabled: bool,
+    motor_target_position: f32,
+    motor_stiffness: f32,
+    motor_damping: f32,
+    motor_position_enabled: bool,
     base: RapierJointBase,
 }
 impl RapierRevoluteJoint {
@@ -227,11 +227,25 @@ impl RapierRevoluteJoint {
         );
     }
 
-    #[cfg(feature = "dim2")]
-    pub fn set_motor_options(&mut self, physics_engine: &mut PhysicsEngine) {
+    pub fn set_motor_position_options(
+        &mut self,
+        physics_engine: &mut PhysicsEngine,
+        motor_target_position: f32,
+        motor_stiffness: f32,
+        motor_damping: f32,
+        motor_position_enabled: bool,
+    ) {
         if !self.base.is_valid() {
             return;
         }
+        self.motor_target_position = motor_target_position;
+        self.motor_stiffness = motor_stiffness;
+        self.motor_damping = motor_damping;
+        self.motor_position_enabled = motor_position_enabled;
+        #[cfg(feature = "dim2")]
+        let softness = self.softness;
+        #[cfg(feature = "dim3")]
+        let softness: f32 = 1.0;
         physics_engine.joint_change_revolute_params(
             self.base.get_space_id(),
             self.base.get_handle(),
@@ -240,32 +254,11 @@ impl RapierRevoluteJoint {
             self.angular_limit_enabled,
             self.motor_target_velocity,
             self.motor_enabled,
-            self.softness,
-            self.motor_target_position,
-            self.motor_stiffness,
-            self.motor_damping,
-            self.motor_position_enabled,
-        );
-    }
-
-    #[cfg(feature = "dim3")]
-    pub fn set_motor_options(&mut self, physics_engine: &mut PhysicsEngine) {
-        if !self.base.is_valid() {
-            return;
-        }
-        physics_engine.joint_change_revolute_params(
-            self.base.get_space_id(),
-            self.base.get_handle(),
-            self.angular_limit_lower,
-            self.angular_limit_upper,
-            self.angular_limit_enabled,
-            self.motor_target_velocity,
-            self.motor_enabled,
-            1.0,
-            self.motor_target_position,
-            self.motor_stiffness,
-            self.motor_damping,
-            self.motor_position_enabled,
+            softness,
+            motor_target_position,
+            motor_stiffness,
+            motor_damping,
+            motor_position_enabled,
         );
     }
 
