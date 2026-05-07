@@ -29,6 +29,7 @@ macro_rules! make_rapier_server_godot_impl {
         use $crate::bodies::rapier_collision_object::IRapierCollisionObject;
         use $crate::fluids::rapier_fluid::RapierFluid;
         use $crate::joints::rapier_joint::IRapierJoint;
+        use $crate::joints::rapier_joint::RapierJoint;
         use $crate::joints::rapier_joint_base::RapierJointType;
         use $crate::servers::RapierPhysicsServer;
         use $crate::servers::rapier_physics_server_extra::RapierBodyParam;
@@ -201,6 +202,28 @@ macro_rules! make_rapier_server_godot_impl {
                 if let Some(joint_obj) = physics_data.joints.get_mut(&joint) {
                     use rapier::dynamics::InverseKinematicsOption;
                     joint_obj.get_mut_base().custom_ik_options = InverseKinematicsOption::default();
+                }
+            }
+
+            #[func]
+            pub fn joint_set_motor_position_options(
+                joint: Rid,
+                target_pos: real,
+                stiffness: real,
+                damping: real,
+                enabled: bool,
+            ) {
+                let physics_data = physics_data();
+                if let Some(RapierJoint::RapierRevoluteJoint(revolute)) =
+                    physics_data.joints.get_mut(&joint)
+                {
+                    revolute.set_motor_position_options(
+                        &mut physics_data.physics_engine,
+                        target_pos,
+                        stiffness,
+                        damping,
+                        enabled,
+                    )
                 }
             }
 

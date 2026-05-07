@@ -25,6 +25,10 @@ pub struct RapierRevoluteJoint {
     angular_limit_enabled: bool,
     #[cfg(feature = "dim2")]
     softness: f32,
+    motor_target_position: f32,
+    motor_stiffness: f32,
+    motor_damping: f32,
+    motor_position_enabled: bool,
     base: RapierJointBase,
 }
 impl RapierRevoluteJoint {
@@ -48,6 +52,10 @@ impl RapierRevoluteJoint {
             angular_limit_enabled: false,
             #[cfg(feature = "dim2")]
             softness: 0.0,
+            motor_target_position: 0.0,
+            motor_stiffness: 0.0,
+            motor_damping: 0.0,
+            motor_position_enabled: false,
             base: RapierJointBase::default(),
         };
         let body_a_rid = body_a.get_base().get_rid();
@@ -80,6 +88,10 @@ impl RapierRevoluteJoint {
             0.0,
             false,
             joint_type,
+            0.0,
+            0.0,
+            0.0,
+            false,
             true,
         );
         Self {
@@ -89,6 +101,10 @@ impl RapierRevoluteJoint {
             motor_enabled: false,
             angular_limit_enabled: false,
             softness: 0.0,
+            motor_target_position: 0.0,
+            motor_stiffness: 0.0,
+            motor_damping: 0.0,
+            motor_position_enabled: false,
             base: RapierJointBase::new(id, rid, space_id, space_handle, handle, joint_type),
         }
     }
@@ -113,6 +129,10 @@ impl RapierRevoluteJoint {
             motor_target_velocity: 0.0,
             motor_enabled: false,
             angular_limit_enabled: false,
+            motor_target_position: 0.0,
+            motor_stiffness: 0.0,
+            motor_damping: 0.0,
+            motor_position_enabled: false,
             base: RapierJointBase::default(),
         };
         let body_a_rid = body_a.get_base().get_rid();
@@ -146,6 +166,10 @@ impl RapierRevoluteJoint {
             0.0,
             false,
             joint_type,
+            0.0,
+            0.0,
+            0.0,
+            false,
             true,
         );
         Self {
@@ -154,6 +178,10 @@ impl RapierRevoluteJoint {
             motor_target_velocity: 0.0,
             motor_enabled: false,
             angular_limit_enabled: false,
+            motor_target_position: 0.0,
+            motor_stiffness: 0.0,
+            motor_damping: 0.0,
+            motor_position_enabled: false,
             base: RapierJointBase::new(id, rid, space_id, space_handle, handle, joint_type),
         }
     }
@@ -192,6 +220,45 @@ impl RapierRevoluteJoint {
             self.motor_target_velocity,
             self.motor_enabled,
             self.softness,
+            self.motor_target_position,
+            self.motor_stiffness,
+            self.motor_damping,
+            self.motor_position_enabled,
+        );
+    }
+
+    pub fn set_motor_position_options(
+        &mut self,
+        physics_engine: &mut PhysicsEngine,
+        motor_target_position: f32,
+        motor_stiffness: f32,
+        motor_damping: f32,
+        motor_position_enabled: bool,
+    ) {
+        if !self.base.is_valid() {
+            return;
+        }
+        self.motor_target_position = motor_target_position;
+        self.motor_stiffness = motor_stiffness;
+        self.motor_damping = motor_damping;
+        self.motor_position_enabled = motor_position_enabled;
+        #[cfg(feature = "dim2")]
+        let softness = self.softness;
+        #[cfg(feature = "dim3")]
+        let softness: f32 = 1.0;
+        physics_engine.joint_change_revolute_params(
+            self.base.get_space_id(),
+            self.base.get_handle(),
+            self.angular_limit_lower,
+            self.angular_limit_upper,
+            self.angular_limit_enabled,
+            self.motor_target_velocity,
+            self.motor_enabled,
+            softness,
+            motor_target_position,
+            motor_stiffness,
+            motor_damping,
+            motor_position_enabled,
         );
     }
 
@@ -226,6 +293,10 @@ impl RapierRevoluteJoint {
             self.motor_target_velocity,
             self.motor_enabled,
             1.0,
+            self.motor_target_position,
+            self.motor_stiffness,
+            self.motor_damping,
+            self.motor_position_enabled,
         );
     }
 
@@ -278,6 +349,10 @@ impl RapierRevoluteJoint {
             self.motor_target_velocity,
             self.motor_enabled,
             self.softness,
+            self.motor_target_position,
+            self.motor_stiffness,
+            self.motor_damping,
+            self.motor_position_enabled,
         );
     }
 
@@ -309,6 +384,10 @@ impl RapierRevoluteJoint {
             self.motor_target_velocity,
             self.motor_enabled,
             1.0,
+            self.motor_target_position,
+            self.motor_stiffness,
+            self.motor_damping,
+            self.motor_position_enabled,
         );
     }
 
