@@ -90,7 +90,8 @@ impl RapierSpace {
             == 0;
         let rid_excluded = handle_excluded_info.query_exclude_body
             == collision_object_base.get_rid().to_u64() as i64;
-        if canvas_excluded || layer_excluded || rid_excluded {
+        let pickable_excluded = !collision_object_base.get_pickable();
+        if canvas_excluded || layer_excluded || rid_excluded || pickable_excluded {
             return true;
         }
         let Some(direct_space) = self.get_direct_state() else {
