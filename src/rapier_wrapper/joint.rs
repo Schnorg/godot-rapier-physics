@@ -279,15 +279,14 @@ impl PhysicsEngine {
         self.body_wake_up(world_handle, body_handle_1, false);
         self.body_wake_up(world_handle, body_handle_2, false);
         if let Some(physics_world) = self.get_mut_world(world_handle) {
-            // Extract the X axis from the rotation matrices
-            let axis1_vec = axis_1 * Vector::X;
-            let axis2_vec = axis_2 * Vector::X;
+            let pose_1 = Pose::from_parts(anchor_1, axis_1);
+            let pose_2 = Pose::from_parts(anchor_2, axis_2);
             // Use GenericJointBuilder to set both local axes for prismatic joint
             let joint = GenericJointBuilder::new(JointAxesMask::LOCKED_PRISMATIC_AXES)
                 .local_anchor1(anchor_1)
                 .local_anchor2(anchor_2)
-                .local_axis1(axis1_vec)
-                .local_axis2(axis2_vec)
+                .local_frame1(pose_1)
+                .local_frame2(pose_2)
                 .limits(JointAxis::LinX, [linear_limit_lower, linear_limit_upper])
                 .contacts_enabled(!disable_collision);
             return physics_world.insert_joint(
@@ -548,14 +547,13 @@ impl PhysicsEngine {
         self.body_wake_up(world_handle, body_handle_2, false);
         if let Some(physics_world) = self.get_mut_world(world_handle) {
             // Create a generic joint that allows all 6 degrees of freedom
-            // Extract the X axis from the rotation as UnitVector
-            let axis1_vec = axis_1 * Vector::X;
-            let axis2_vec = axis_2 * Vector::X;
+            let pose_1 = Pose::from_parts(anchor_1, axis_1);
+            let pose_2 = Pose::from_parts(anchor_2, axis_2);
             let joint = GenericJointBuilder::new(JointAxesMask::FREE_FIXED_AXES)
                 .local_anchor1(anchor_1)
                 .local_anchor2(anchor_2)
-                .local_axis1(axis1_vec)
-                .local_axis2(axis2_vec)
+                .local_frame1(pose_1)
+                .local_frame2(pose_2)
                 .contacts_enabled(!disable_collision);
             return physics_world.insert_joint(body_handle_1, body_handle_2, joint_type, joint);
         }
@@ -585,15 +583,14 @@ impl PhysicsEngine {
             // Use swing_span / sqrt(2) to get the per-axis limit
             let swing_limit = swing_span / 2.0f32.sqrt();
             let twist_limit = twist_span / 2.0;
-            // Extract the X axis from the rotation as UnitVector
-            let axis1_vec = axis_1 * Vector::X;
-            let axis2_vec = axis_2 * Vector::X;
+            let pose_1 = Pose::from_parts(anchor_1, axis_1);
+            let pose_2 = Pose::from_parts(anchor_2, axis_2);
             // Create a generic joint with locked translations and limited rotations
             let joint = GenericJointBuilder::new(JointAxesMask::LOCKED_SPHERICAL_AXES)
                 .local_anchor1(anchor_1)
                 .local_anchor2(anchor_2)
-                .local_axis1(axis1_vec)
-                .local_axis2(axis2_vec)
+                .local_frame1(pose_1)
+                .local_frame2(pose_2)
                 .limits(JointAxis::AngX, [-swing_limit, swing_limit])
                 .limits(JointAxis::AngY, [-swing_limit, swing_limit])
                 .limits(JointAxis::AngZ, [-twist_limit, twist_limit])
@@ -640,6 +637,7 @@ impl PhysicsEngine {
         spring_damping: Real,
         spring_stiffness: Real,
         spring_equilibrium_point: Real,
+        enable_limit: bool,
     ) {
         self.joint_wake_up_connected_rigidbodies(world_handle, joint_handle);
         if let Some(physics_world) = self.get_mut_world(world_handle)
@@ -650,7 +648,11 @@ impl PhysicsEngine {
                     "Both spring and motor model are enabled on joint, this is currently not implemented, motor will be given precidence!"
                 );
             }
-            joint.set_limits(axis, [lower_limit, limit_upper]);
+            if enable_limit {
+                joint.set_limits(axis, [lower_limit, limit_upper]);
+            } else {
+                joint.limit_axes.remove(JointAxesMask::from(axis));
+            }
             if enable_motor {
                 joint.set_motor_model(axis, MotorModel::ForceBased);
                 joint.set_motor_max_force(axis, motor_force_limit);
@@ -664,6 +666,7 @@ impl PhysicsEngine {
                     spring_stiffness,
                     spring_damping,
                 );
+                joint.set_motor_max_force(axis, Real::MAX);
             } else {
                 joint.set_motor_max_force(axis, 0.0);
                 joint.set_motor(axis, 0.0, 0.0, 0.0, 0.0);
