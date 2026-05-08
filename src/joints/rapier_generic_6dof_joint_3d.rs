@@ -168,6 +168,7 @@ impl RapierGeneric6DOFJoint3D {
                 axis_params.angular_spring_damping,
                 axis_params.angular_spring_stiffness,
                 axis_params.angular_spring_equilibrium_point,
+                axis_params.enable_angular_limit,
             );
         } else {
             physics_engine.joint_change_generic_6dof_axis_param(
@@ -183,6 +184,7 @@ impl RapierGeneric6DOFJoint3D {
                 axis_params.linear_spring_damping,
                 axis_params.linear_spring_stiffness,
                 axis_params.linear_spring_equilibrium_point,
+                axis_params.enable_linear_limit,
             );
         }
     }
