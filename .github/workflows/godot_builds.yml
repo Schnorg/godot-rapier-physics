@@ -42,4 +42,11 @@ jobs:
             !bin${{ matrix.dimensions }}/test.gd
             !bin${{ matrix.dimensions }}/test.gd.uid
             !bin${{ matrix.dimensions }}/test.tscn
+            !bin${{ matrix.dimensions }}/test_motor_position.gd
+            !bin${{ matrix.dimensions }}/test_motor_position.gd.uid
+            !bin${{ matrix.dimensions }}/test_motor_position.tscn
+            !bin${{ matrix.dimensions }}/test_motor_position_beam.gd
+            !bin${{ matrix.dimensions }}/test_motor_position_beam.gd.uid
+            !bin${{ matrix.dimensions }}/test_motor_position_spawner.gd
+            !bin${{ matrix.dimensions }}/test_motor_position_spawner.gd.uid
           if-no-files-found: error
