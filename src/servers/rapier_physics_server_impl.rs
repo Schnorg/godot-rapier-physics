@@ -382,10 +382,9 @@ impl RapierPhysicsServerImpl {
     pub(super) fn space_get_active_bodies(&self, space: Rid) -> Array<Rid> {
         let physics_data = physics_data();
         if let Some(space) = physics_data.spaces.get_mut(&space) {
-            let bodies = space.get_state().get_active_bodies();
             let mut array: Array<Rid> = Array::new();
-            for body_id in bodies {
-                let rid = get_id_rid(body_id, &physics_data.ids);
+            for body_id in space.get_state().get_active_list() {
+                let rid = get_id_rid(*body_id, &physics_data.ids);
                 array.push(rid);
             }
             return array;
@@ -608,12 +607,13 @@ impl RapierPhysicsServerImpl {
             space.set_default_area_param(param, value);
             return;
         }
-        let area_update_mode = AreaUpdateMode::None;
+        let mut area_update_mode = AreaUpdateMode::None;
         let mut area_id = RapierId::default();
         if let Some(area) = physics_data.collision_objects.get_mut(&area)
             && let Some(area) = area.get_mut_area()
         {
-            area.set_param(param, value, &mut physics_data.spaces, &physics_data.ids);
+            area_update_mode =
+                area.set_param(param, value, &mut physics_data.spaces, &physics_data.ids);
             area_id = area.get_base().get_id();
         }
         if area_id == RapierId::default() {

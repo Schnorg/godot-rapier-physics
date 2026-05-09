@@ -53,7 +53,6 @@ const STUCK_PENETRATION_THRESHOLD: Real = 0.1;
 #[cfg(feature = "dim3")]
 const STUCK_PENETRATION_THRESHOLD: Real = 0.01;
 const NORMAL_EPSILON: Real = 0.01;
-const ONE_WAY_PERPENDICULAR_THRESHOLD: Real = 0.1;
 #[derive(Clone, Copy)]
 struct ExcludedShapePair {
     local_shape_index: usize,
@@ -84,6 +83,110 @@ fn clamp_near_zero_blocked_travel(motion: Vector, margin: Real, travel: &mut Vec
     if motion.dot(*travel) > 0.0 && travel.length() < blocked_motion_tolerance(margin) {
         *travel = Vector::default();
     }
+}
+fn recover_motion_from_contacts(
+    contacts: &[Vector; 64],
+    priorities: &[Real; 32],
+    contact_count: usize,
+    min_contact_depth: Real,
+) -> Vector {
+    let total_priority: Real = priorities.iter().take(contact_count).sum();
+    let inv_total_weight = if total_priority.abs() <= DEFAULT_EPSILON {
+        1.0
+    } else {
+        contact_count as Real / total_priority
+    };
+    let mut recover_motion = Vector::default();
+    for i in 0..contact_count {
+        let a = contacts[i * 2];
+        let b = contacts[i * 2 + 1];
+        if let Some(n) = (a - b).try_normalized() {
+            let d = n.dot(b);
+            let depth = n.dot(a + recover_motion) - d;
+            if depth > min_contact_depth + DEFAULT_EPSILON {
+                recover_motion -= n
+                    * (depth - min_contact_depth)
+                    * BODY_MOTION_RECOVER_RATIO
+                    * priorities[i]
+                    * inv_total_weight;
+            }
+        }
+    }
+    recover_motion
+}
+#[cfg(feature = "dim2")]
+fn rect_contains_point(rect: Rect, point: Vector, tolerance: Real) -> bool {
+    let end = rect.position + rect.size;
+    let min_x = rect.position.x.min(end.x) - tolerance;
+    let max_x = rect.position.x.max(end.x) + tolerance;
+    let min_y = rect.position.y.min(end.y) - tolerance;
+    let max_y = rect.position.y.max(end.y) + tolerance;
+    point.x >= min_x && point.x <= max_x && point.y >= min_y && point.y <= max_y
+}
+#[cfg(feature = "dim3")]
+fn rect_contains_point(rect: Rect, point: Vector, tolerance: Real) -> bool {
+    let end = rect.position + rect.size;
+    let min_x = rect.position.x.min(end.x) - tolerance;
+    let max_x = rect.position.x.max(end.x) + tolerance;
+    let min_y = rect.position.y.min(end.y) - tolerance;
+    let max_y = rect.position.y.max(end.y) + tolerance;
+    let min_z = rect.position.z.min(end.z) - tolerance;
+    let max_z = rect.position.z.max(end.z) + tolerance;
+    point.x >= min_x
+        && point.x <= max_x
+        && point.y >= min_y
+        && point.y <= max_y
+        && point.z >= min_z
+        && point.z <= max_z
+}
+#[cfg(feature = "dim2")]
+fn shape_contact_aabb(shape: &RapierShape, transform: Transform) -> Rect {
+    let mut aabb = shape.get_base().get_aabb(transform.origin);
+    let mut local_transform = transform;
+    local_transform.origin = Vector::default();
+    aabb.size = transform_scale(&local_transform) * aabb.size;
+    aabb
+}
+#[cfg(feature = "dim3")]
+fn shape_contact_aabb(shape: &RapierShape, transform: Transform) -> Rect {
+    let local_aabb = shape.get_base().get_aabb(Vector::default());
+    let local_end = local_aabb.end();
+    let mut min = Vector::new(Real::INFINITY, Real::INFINITY, Real::INFINITY);
+    let mut max = Vector::new(Real::NEG_INFINITY, Real::NEG_INFINITY, Real::NEG_INFINITY);
+    for x in [local_aabb.position.x, local_end.x] {
+        for y in [local_aabb.position.y, local_end.y] {
+            for z in [local_aabb.position.z, local_end.z] {
+                let point = transform * Vector::new(x, y, z);
+                min = min.coord_min(point);
+                max = max.coord_max(point);
+            }
+        }
+    }
+    Rect::from_corners(min, max)
+}
+#[cfg(feature = "dim2")]
+fn is_valid_recovery_contact(
+    moving_shape: &RapierShape,
+    moving_shape_transform: Transform,
+    _collision_shape: &RapierShape,
+    contact: &ContactResult,
+    margin: Real,
+) -> bool {
+    let contact_point = vector_to_godot(contact.pixel_point2);
+    let contact_aabb = shape_contact_aabb(moving_shape, moving_shape_transform).grow(margin + 1.0);
+    rect_contains_point(contact_aabb, contact_point, DEFAULT_EPSILON)
+}
+#[cfg(feature = "dim3")]
+fn is_valid_recovery_contact(
+    moving_shape: &RapierShape,
+    moving_shape_transform: Transform,
+    _collision_shape: &RapierShape,
+    contact: &ContactResult,
+    margin: Real,
+) -> bool {
+    let contact_point = vector_to_godot(contact.pixel_point2);
+    let contact_aabb = shape_contact_aabb(moving_shape, moving_shape_transform).grow(margin + 0.01);
+    rect_contains_point(contact_aabb, contact_point, DEFAULT_EPSILON)
 }
 #[cfg(feature = "dim2")]
 fn reset_body_motion_result(result: &mut PhysicsServerExtensionMotionResult) {
@@ -407,6 +510,7 @@ impl RapierSpace {
         loop {
             let mut results = [PointHitInfo::default(); 32];
             let mut sr = [Vector::default(); 64]; // Store contact points (2 per contact, max 32 contacts)
+            let mut priorities = [0.0; 32];
             let mut contact_count = 0;
             *excluded_shape_pair_count = 0; // Reset for this iteration
             // Undo the currently transform the physics server is aware of and apply the provided one
@@ -484,6 +588,15 @@ impl RapierSpace {
                                 if !contact.collided {
                                     continue;
                                 }
+                                if !is_valid_recovery_contact(
+                                    body_shape,
+                                    body_shape_transform,
+                                    col_shape,
+                                    &contact,
+                                    p_margin,
+                                ) {
+                                    continue;
+                                }
                                 let mut did_collide = true;
                                 let skip_collision = physics_engine.should_skip_collision_one_dir(
                                     &contact,
@@ -491,6 +604,7 @@ impl RapierSpace {
                                     shape_col_object,
                                     shape_index,
                                     &col_shape_transform,
+                                    body_shape_transform.origin,
                                     p_margin,
                                     RapierSpace::get_last_step(),
                                     p_motion,
@@ -515,6 +629,7 @@ impl RapierSpace {
                                     let b = vector_to_godot(contact.pixel_point2);
                                     sr[contact_count * 2] = a;
                                     sr[contact_count * 2 + 1] = b;
+                                    priorities[contact_count] = 1.0;
                                     contact_count += 1;
                                     collided = true;
                                 }
@@ -527,44 +642,8 @@ impl RapierSpace {
                 break;
             }
             recovered = true;
-            // First pass: calculate all depths and total priority (like Godot does)
-            let mut depths = [0.0; 32];
-            let mut total_priority = 0.0;
-            for i in 0..contact_count {
-                let a = sr[i * 2];
-                let b = sr[i * 2 + 1];
-                if let Some(n) = (a - b).try_normalized() {
-                    let d = n.dot(b);
-                    let depth = n.dot(a) - d;
-                    // Count any penetration, even if shallow
-                    if depth > DEFAULT_EPSILON {
-                        depths[i] = depth;
-                        total_priority += depth;
-                    }
-                }
-            }
-            // Second pass: apply recovery weighted by priority
-            let mut recover_motion = Vector::default();
-            if total_priority > 0.0 {
-                for i in 0..contact_count {
-                    if depths[i] <= 0.0 {
-                        continue;
-                    }
-                    let a = sr[i * 2];
-                    let b = sr[i * 2 + 1];
-                    if let Some(n) = (a - b).try_normalized() {
-                        let d = n.dot(b);
-                        let depth = n.dot(a + recover_motion) - d;
-                        if depth > DEFAULT_EPSILON {
-                            // Priority weight: deeper contacts get more correction
-                            let priority = depths[i] / total_priority;
-                            let recovery_amount = (depth - min_contact_depth).max(depth * 0.4);
-                            recover_motion -=
-                                n * recovery_amount * BODY_MOTION_RECOVER_RATIO * priority;
-                        }
-                    }
-                }
-            }
+            let recover_motion =
+                recover_motion_from_contacts(&sr, &priorities, contact_count, min_contact_depth);
             // Break if recovery motion is too small to be meaningful
             if recover_motion.length() < MIN_RECOVERY_THRESHOLD {
                 recovered = false;
@@ -789,6 +868,8 @@ impl RapierSpace {
                                 shape_col_object,
                                 shape_index,
                                 &col_shape_transform,
+                                body_shape_transform.origin
+                                    + p_motion * (hi + self.get_contact_max_allowed_penetration()),
                                 p_margin,
                                 RapierSpace::get_last_step(),
                                 p_motion,
@@ -954,6 +1035,7 @@ impl RapierSpace {
                                 shape_col_object,
                                 shape_index,
                                 &col_shape_transform,
+                                body_shape_transform.origin,
                                 p_margin,
                                 RapierSpace::get_last_step(),
                                 p_motion,
@@ -1062,6 +1144,38 @@ fn get_transform_forward(transform: &Transform2D) -> Vector {
 fn get_transform_forward(transform: &Transform3D) -> Vector {
     -transform.basis.col_b()
 }
+fn one_way_valid_depth(
+    owc_margin: f32,
+    motion_margin: f32,
+    platform_linear_velocity: Vector,
+    last_step: f32,
+    valid_dir: Vector,
+) -> f32 {
+    let mut valid_depth = owc_margin.max(motion_margin);
+    let platform_motion = platform_linear_velocity * last_step;
+    let platform_motion_len = platform_motion.length();
+    if !platform_motion_len.is_zero_approx() {
+        valid_depth +=
+            platform_motion_len * vector_normalized(platform_motion).dot(-valid_dir).max(0.0);
+    }
+    valid_depth
+}
+fn is_one_way_contact_invalid(
+    contact: &ContactResult,
+    moving_shape_origin: Vector,
+    platform_shape_origin: Vector,
+    valid_dir: Vector,
+    valid_depth: Real,
+) -> bool {
+    let rel_dir = vector_to_godot(contact.pixel_point1) - vector_to_godot(contact.pixel_point2);
+    let rel_length_sq = rel_dir.length_squared();
+    if rel_length_sq > valid_depth * valid_depth {
+        return true;
+    }
+    let shape_rel_dir = moving_shape_origin - platform_shape_origin;
+    shape_rel_dir.length_squared() > NORMAL_EPSILON
+        && valid_dir.dot(vector_normalized(shape_rel_dir)) < DEFAULT_EPSILON
+}
 impl PhysicsEngine {
     #[allow(clippy::too_many_arguments)]
     fn should_skip_collision_one_dir(
@@ -1071,63 +1185,40 @@ impl PhysicsEngine {
         collision_body: &RapierCollisionObject,
         shape_index: usize,
         col_shape_transform: &Transform,
+        moving_shape_origin: Vector,
         p_margin: f32,
         last_step: f32,
-        p_motion: Vector,
+        _p_motion: Vector,
     ) -> bool {
-        let dist = contact.pixel_distance;
         if body_shape.allows_one_way_collision()
             && collision_body
                 .get_base()
                 .is_shape_set_as_one_way_collision(shape_index)
         {
-            let valid_dir = -vector_normalized(get_transform_forward(col_shape_transform));
+            let valid_dir = vector_normalized(get_transform_forward(col_shape_transform));
             let owc_margin = collision_body
                 .get_base()
                 .get_shape_one_way_collision_margin(shape_index);
-            let mut valid_depth = owc_margin.max(p_margin);
+            let mut platform_linear_velocity = Vector::default();
             if let Some(b) = collision_body.get_body()
                 && b.get_base().mode.ord() >= BodyMode::KINEMATIC.ord()
             {
-                // Increase margin by platform movement in the one-way direction
-                let lv = b.get_linear_velocity(self);
-                let mut motion = lv * last_step;
-                let motion_len = motion.length();
-                if !motion_len.is_zero_approx() {
-                    motion = vector_normalized(motion);
-                }
-                valid_depth += motion_len * motion.dot(valid_dir).max(0.0);
+                platform_linear_velocity = b.get_linear_velocity(self);
             }
-            let _motion = p_motion;
-            let motion_len = p_motion.length();
-            if !motion_len.is_zero_approx() {
-                valid_depth += motion_len * vector_normalized(p_motion).dot(valid_dir).max(0.0);
-            }
-            let motion_dot_valid_dir = if motion_len.is_zero_approx() {
-                0.0
-            } else {
-                vector_normalized(p_motion).dot(valid_dir)
-            };
-            let contact_normal = vector_to_godot(contact.normal1);
-            let normal_dot_direction = contact_normal.dot(valid_dir);
-            // If motion opposes one-way direction, skip collision (allows passage through platforms)
-            if motion_dot_valid_dir < 0.0 {
-                return true;
-            }
-            // Check if contact normal is valid (non-zero)
-            let normal_length_sq = contact_normal.length_squared();
-            if normal_length_sq > NORMAL_EPSILON {
-                // Skip side edges (perpendicular contacts)
-                if normal_dot_direction.abs() < ONE_WAY_PERPENDICULAR_THRESHOLD {
-                    return true;
-                }
-                // Skip if contact normal opposes one-way direction
-                if normal_dot_direction < 0.0 {
-                    return true;
-                }
-            }
-            // Skip deeply penetrating contacts
-            if dist < -valid_depth {
+            let valid_depth = one_way_valid_depth(
+                owc_margin,
+                p_margin,
+                platform_linear_velocity,
+                last_step,
+                valid_dir,
+            );
+            if is_one_way_contact_invalid(
+                contact,
+                moving_shape_origin,
+                col_shape_transform.origin,
+                valid_dir,
+                valid_depth,
+            ) {
                 return true;
             }
         }
@@ -1192,6 +1283,36 @@ mod tests {
             }),
             collision_count: 0,
         }
+    }
+    fn assert_real_approx_eq(actual: Real, expected: Real) {
+        assert!(
+            (actual - expected).abs() <= 1.0e-5,
+            "expected {expected}, got {actual}"
+        );
+    }
+    #[test]
+    fn recover_motion_uses_equal_priority_contacts() {
+        let mut contacts = [Vector::default(); 64];
+        let mut priorities = [0.0; 32];
+        contacts[0] = x_motion(1.0);
+        contacts[1] = Vector::default();
+        contacts[2] = y_motion(1.0);
+        contacts[3] = Vector::default();
+        priorities[0] = 1.0;
+        priorities[1] = 1.0;
+        let recover_motion = recover_motion_from_contacts(&contacts, &priorities, 2, 0.0);
+        assert_real_approx_eq(recover_motion.x, -BODY_MOTION_RECOVER_RATIO);
+        assert_real_approx_eq(recover_motion.y, -BODY_MOTION_RECOVER_RATIO);
+    }
+    #[test]
+    fn recover_motion_respects_min_contact_depth() {
+        let mut contacts = [Vector::default(); 64];
+        let mut priorities = [0.0; 32];
+        contacts[0] = x_motion(0.01);
+        contacts[1] = Vector::default();
+        priorities[0] = 1.0;
+        let recover_motion = recover_motion_from_contacts(&contacts, &priorities, 1, 0.02);
+        assert_eq!(recover_motion, Vector::default());
     }
     #[cfg(feature = "dim2")]
     #[test]
@@ -1288,6 +1409,64 @@ mod tests {
         let mut travel = x_motion(-0.003);
         clamp_near_zero_blocked_travel(motion, 0.08, &mut travel);
         assert_eq!(travel, x_motion(-0.003));
+    }
+    #[test]
+    fn one_way_valid_depth_ignores_test_body_motion() {
+        let valid_dir = y_motion(1.0);
+        let depth_without_platform_motion =
+            one_way_valid_depth(1.0, 0.08, Vector::default(), 1.0 / 60.0, valid_dir);
+        assert_eq!(depth_without_platform_motion, 1.0);
+    }
+    #[test]
+    fn one_way_valid_depth_includes_platform_motion_against_one_way_direction() {
+        let valid_dir = y_motion(1.0);
+        let depth = one_way_valid_depth(1.0, 0.08, y_motion(-60.0), 1.0 / 60.0, valid_dir);
+        assert_eq!(depth, 2.0);
+    }
+    #[test]
+    fn one_way_contact_accepts_contact_along_valid_direction() {
+        let contact = ContactResult {
+            pixel_point1: vector_to_rapier(x_motion(-1.0)),
+            pixel_point2: vector_to_rapier(Vector::default()),
+            ..Default::default()
+        };
+        assert!(!is_one_way_contact_invalid(
+            &contact,
+            x_motion(1.0),
+            Vector::default(),
+            x_motion(1.0),
+            1.0
+        ));
+    }
+    #[test]
+    fn one_way_contact_rejects_contact_against_valid_direction() {
+        let contact = ContactResult {
+            pixel_point1: vector_to_rapier(x_motion(-1.0)),
+            pixel_point2: vector_to_rapier(Vector::default()),
+            ..Default::default()
+        };
+        assert!(is_one_way_contact_invalid(
+            &contact,
+            x_motion(1.0),
+            Vector::default(),
+            x_motion(-1.0),
+            1.0
+        ));
+    }
+    #[test]
+    fn one_way_contact_rejects_contact_beyond_margin() {
+        let contact = ContactResult {
+            pixel_point1: vector_to_rapier(x_motion(-2.0)),
+            pixel_point2: vector_to_rapier(Vector::default()),
+            ..Default::default()
+        };
+        assert!(is_one_way_contact_invalid(
+            &contact,
+            x_motion(1.0),
+            Vector::default(),
+            x_motion(1.0),
+            1.0
+        ));
     }
     #[test]
     fn clamp_near_zero_safe_motion_keeps_full_motion() {

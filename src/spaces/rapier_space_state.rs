@@ -129,6 +129,10 @@ impl RapierSpaceState {
         self.monitor_query_list.insert(area);
     }
 
+    pub fn area_remove_from_monitor_query_list(&mut self, area: RapierId) {
+        self.monitor_query_list.remove(&area);
+    }
+
     pub fn area_add_to_area_update_list(&mut self, area: RapierId) {
         self.area_update_list.insert(area);
     }
@@ -204,10 +208,6 @@ impl RapierSpaceState {
 
     pub fn get_gravity_update_list(&self) -> &BTreeSet<RapierId> {
         &self.gravity_update_list
-    }
-
-    pub fn get_active_bodies(&self) -> Vec<RapierId> {
-        self.active_list.clone().into_iter().collect()
     }
 
     pub fn get_state_query_list(&self) -> &BTreeSet<RapierId> {
@@ -286,7 +286,6 @@ mod tests {
         assert!(state.get_active_list().contains(&rb_id));
         state.body_remove_from_active_list(rb_id);
         assert!(!state.get_active_list().contains(&rb_id));
-        assert!(state.get_active_bodies().is_empty());
     }
     #[test]
     fn test_body_add_and_remove_reset_from_mass_properties_update_list() {
@@ -339,6 +338,9 @@ mod tests {
         let rb_id = 0;
         state.area_add_to_monitor_query_list(rb_id);
         assert!(state.get_monitor_query_list().contains(&rb_id));
+        state.area_remove_from_monitor_query_list(rb_id);
+        assert!(!state.get_monitor_query_list().contains(&rb_id));
+        state.area_add_to_monitor_query_list(rb_id);
         state.reset_monitor_query_list();
         assert!(state.get_monitor_query_list().is_empty());
     }
