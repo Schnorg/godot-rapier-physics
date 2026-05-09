@@ -154,27 +154,33 @@ impl RapierDirectSpaceStateImpl {
         }
         let results_slice: &mut [PhysicsServerExtensionShapeResult] =
             unsafe { std::slice::from_raw_parts_mut(results, max_results) };
-        for (i, result_slice) in results_slice.iter_mut().enumerate().take(max_results) {
+        let mut output_count = 0;
+        for i in 0..result_count {
             let hit_info = unsafe { &mut *hit_info_ptr.add(i) };
+            if !hit_info.user_data.is_valid() {
+                continue;
+            }
             let (rid, shape_index) = RapierCollisionObjectBase::get_collider_user_data(
                 &hit_info.user_data,
                 &physics_data.ids,
             );
+            let Some(collision_object_2d) = physics_data.collision_objects.get(&rid) else {
+                continue;
+            };
+            let result_slice = &mut results_slice[output_count];
             result_slice.rid = rid;
             result_slice.shape = shape_index as i32;
-            let collision_object_2d = physics_data.collision_objects.get(&rid);
-            if let Some(collision_object_2d) = collision_object_2d {
-                let instance_id = collision_object_2d.get_base().get_instance_id();
-                result_slice.collider_id = ObjectId { id: instance_id };
-                if instance_id != 0
-                    && let Ok(object) =
-                        Gd::<Node>::try_from_instance_id(InstanceId::from_i64(instance_id as i64))
-                {
-                    result_slice.set_collider(object)
-                }
+            let instance_id = collision_object_2d.get_base().get_instance_id();
+            result_slice.collider_id = ObjectId { id: instance_id };
+            if instance_id != 0
+                && let Ok(object) =
+                    Gd::<Node>::try_from_instance_id(InstanceId::from_i64(instance_id as i64))
+            {
+                result_slice.set_collider(object)
             }
+            output_count += 1;
         }
-        result_count as i32
+        output_count as i32
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -191,6 +197,9 @@ impl RapierDirectSpaceStateImpl {
         max_results: i32,
         physics_data: &PhysicsData,
     ) -> i32 {
+        if max_results <= 0 {
+            return 0;
+        }
         let max_results = max_results as usize;
         let Some(shape) = physics_data.shapes.get(&shape_rid) else {
             return 0;
@@ -245,8 +254,8 @@ impl RapierDirectSpaceStateImpl {
                 {
                     results_slice[cpt].set_collider(object)
                 }
+                cpt += 1;
             }
-            cpt += 1;
             if cpt >= max_results {
                 break;
             }
@@ -330,6 +339,12 @@ impl RapierDirectSpaceStateImpl {
         result_count: *mut i32,
         physics_data: &PhysicsData,
     ) -> bool {
+        if !result_count.is_null() {
+            unsafe { *result_count = 0 };
+        }
+        if max_results <= 0 {
+            return false;
+        }
         let max_results = max_results as usize;
         let results_out = results as *mut Vector;
         let Some(shape) = physics_data.shapes.get(&shape_rid) else {
@@ -362,8 +377,8 @@ impl RapierDirectSpaceStateImpl {
             &mut intersecting_points,
             max_results,
         );
-        unsafe {
-            *result_count = results_count as i32;
+        if !result_count.is_null() {
+            unsafe { *result_count = results_count as i32 };
         }
         if results_count == 0 {
             return false;
@@ -443,30 +458,35 @@ impl RapierDirectSpaceStateImpl {
         }
         if let Some(i) = deepest_collision_index {
             let deepest_collision: &ShapeCastResult = &results[i];
+            if !deepest_collision.user_data.is_valid() {
+                return false;
+            }
             let (rid, shape_index) = RapierCollisionObjectBase::get_collider_user_data(
                 &deepest_collision.user_data,
                 &physics_data.ids,
             );
             let r_info = unsafe { &mut *rest_info };
-            if let Some(collision_object_2d) = physics_data.collision_objects.get(&rid) {
-                let instance_id = collision_object_2d.get_base().get_instance_id();
-                r_info.collider_id = ObjectId { id: instance_id };
-                if let Some(body) = collision_object_2d.get_body() {
-                    let rel_vec = r_info.point
-                        - (body.get_base().get_transform().origin + body.get_center_of_mass());
-                    r_info.linear_velocity = body.get_linear_velocity(&physics_data.physics_engine)
-                        + cross_product(
-                            body.get_angular_velocity(&physics_data.physics_engine),
-                            rel_vec,
-                        );
-                } else {
-                    r_info.linear_velocity = Vector::default();
-                }
-                r_info.normal = vector_to_godot(deepest_collision.normal2);
-                r_info.rid = rid;
-                r_info.shape = shape_index as i32;
-                r_info.point = vector_to_godot(deepest_collision.pixel_witness2);
+            let Some(collision_object_2d) = physics_data.collision_objects.get(&rid) else {
+                return false;
+            };
+            let instance_id = collision_object_2d.get_base().get_instance_id();
+            r_info.collider_id = ObjectId { id: instance_id };
+            let collision_point = vector_to_godot(deepest_collision.pixel_witness2);
+            if let Some(body) = collision_object_2d.get_body() {
+                let rel_vec = collision_point
+                    - (body.get_base().get_transform().origin + body.get_center_of_mass());
+                r_info.linear_velocity = body.get_linear_velocity(&physics_data.physics_engine)
+                    + cross_product(
+                        body.get_angular_velocity(&physics_data.physics_engine),
+                        rel_vec,
+                    );
+            } else {
+                r_info.linear_velocity = Vector::default();
             }
+            r_info.normal = vector_to_godot(deepest_collision.normal2);
+            r_info.rid = rid;
+            r_info.shape = shape_index as i32;
+            r_info.point = collision_point;
             return true;
         }
         false

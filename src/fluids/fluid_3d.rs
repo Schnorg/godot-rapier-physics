@@ -165,7 +165,16 @@ impl Fluid3D {
     /// Create the points of the fluid particles inside a box.
     fn create_box_points(&self, width: i32, height: i32, depth: i32) -> PackedVectorArray {
         let mut new_points = PackedVectorArray::default();
-        new_points.resize((width * height * depth) as usize);
+        if width <= 0 || height <= 0 || depth <= 0 {
+            return new_points;
+        }
+        let Some(point_count) = width
+            .checked_mul(height)
+            .and_then(|point_count| point_count.checked_mul(depth))
+        else {
+            return new_points;
+        };
+        new_points.resize(point_count as usize);
         for i in 0..width {
             for j in 0..height {
                 for k in 0..depth {
@@ -184,13 +193,21 @@ impl Fluid3D {
     /// Create the points of the fluid particles inside a sphere.
     fn create_sphere_points(&self, radius: i32) -> PackedVectorArray {
         let mut new_points = PackedVectorArray::default();
+        if radius <= 0 {
+            return new_points;
+        }
+        let radius_sq = i64::from(radius) * i64::from(radius);
         for i in -radius..radius {
             for j in -radius..radius {
                 for k in -radius..radius {
                     let x = i as f32 * self.radius;
                     let y = j as f32 * self.radius;
                     let z = k as f32 * self.radius;
-                    if i * i + j * j * k * k <= radius * radius {
+                    if i64::from(i) * i64::from(i)
+                        + i64::from(j) * i64::from(j)
+                        + i64::from(k) * i64::from(k)
+                        <= radius_sq
+                    {
                         new_points.push(Vector::new(x, y, z));
                     }
                 }

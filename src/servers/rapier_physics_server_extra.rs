@@ -184,11 +184,13 @@ macro_rules! make_rapier_server_godot_impl {
                     use rapier::dynamics::InverseKinematicsOption;
                     use rapier::dynamics::JointAxesMask;
                     let options = InverseKinematicsOption {
-                        damping,
-                        max_iters: max_iterations as usize,
-                        constrained_axes: JointAxesMask::from_bits_truncate(constrained_axes as u8),
-                        epsilon_linear,
-                        epsilon_angular,
+                        damping: damping.max(0.0),
+                        max_iters: max_iterations.max(0) as usize,
+                        constrained_axes: JointAxesMask::from_bits_truncate(
+                            constrained_axes.max(0) as u8,
+                        ),
+                        epsilon_linear: epsilon_linear.max(0.0),
+                        epsilon_angular: epsilon_angular.max(0.0),
                     };
                     joint_obj.get_mut_base().custom_ik_options = options;
                 }

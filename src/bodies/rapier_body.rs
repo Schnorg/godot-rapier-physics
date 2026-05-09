@@ -920,7 +920,7 @@ impl RapierBody {
     ) {
         self.state
             .contacts
-            .resize(size as usize, Contact::default());
+            .resize(size.max(0) as usize, Contact::default());
         self.state.contact_count = 0;
         // update all contact forces
         self.recreate_shapes(physics_engine, physics_spaces, physics_ids);

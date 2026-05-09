@@ -356,7 +356,7 @@ impl RapierSpace {
     }
 
     pub fn set_debug_contacts(&mut self, max_contacts: i32) {
-        self.contact_debug.resize(max_contacts as usize);
+        self.contact_debug.resize(max_contacts.max(0) as usize);
     }
 
     pub fn is_debugging_contacts(&self) -> bool {

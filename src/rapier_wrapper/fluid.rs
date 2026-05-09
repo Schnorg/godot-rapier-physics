@@ -276,6 +276,9 @@ impl PhysicsEngine {
         radius: Real,
     ) -> Vec<i32> {
         let mut indices = Vec::new();
+        if radius <= 0.0 {
+            return indices;
+        }
         if let Some(physics_world) = self.get_world(world_handle) {
             let godot_aabb = crate::types::Rect::new(
                 center - crate::types::Vector::ONE * radius,

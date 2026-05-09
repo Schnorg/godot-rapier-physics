@@ -270,6 +270,9 @@ impl RapierPhysicsServerImpl {
         result_count: *mut i32,
     ) -> bool {
         let physics_data = physics_data();
+        if !result_count.is_null() {
+            unsafe { *result_count = 0 };
+        }
         let [shape_a, shape_b] = physics_data.shapes.get_disjoint_mut([&shape_a, &shape_b]);
         let (Some(shape_a), Some(shape_b)) = (shape_a, shape_b) else {
             return false;
@@ -291,9 +294,11 @@ impl RapierPhysicsServerImpl {
             return false;
         }
         if result_max >= 1 {
-            unsafe { *result_count = 1 };
+            if !result_count.is_null() {
+                unsafe { *result_count = 1 };
+            }
             let vector2_slice: &mut [Vector] =
-                unsafe { std::slice::from_raw_parts_mut(results_out, result_max as usize) };
+                unsafe { std::slice::from_raw_parts_mut(results_out, result_max as usize * 2) };
             vector2_slice[0] = vector_to_godot(result.pixel_witness1);
             vector2_slice[1] = vector_to_godot(result.pixel_witness2);
         }

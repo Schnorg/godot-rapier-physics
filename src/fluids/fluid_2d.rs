@@ -98,7 +98,13 @@ impl Fluid2D {
     /// Create the points of the fluid particles inside a rectangle.
     fn create_rectangle_points(&self, width: i32, height: i32) -> PackedVectorArray {
         let mut new_points = PackedVectorArray::default();
-        new_points.resize((width * height) as usize);
+        if width <= 0 || height <= 0 {
+            return new_points;
+        }
+        let Some(point_count) = width.checked_mul(height) else {
+            return new_points;
+        };
+        new_points.resize(point_count as usize);
         for i in 0..width {
             for j in 0..height {
                 new_points[(i + j * width) as usize] =
@@ -112,11 +118,15 @@ impl Fluid2D {
     /// Create the points of the fluid particles inside a circle.
     fn create_circle_points(&self, radius: i32) -> PackedVectorArray {
         let mut new_points = PackedVectorArray::default();
+        if radius <= 0 {
+            return new_points;
+        }
+        let radius_sq = i64::from(radius) * i64::from(radius);
         for i in -radius..radius {
             for j in -radius..radius {
                 let x = i as f32 * self.radius * 2.0;
                 let y = j as f32 * self.radius * 2.0;
-                if i * i + j * j <= radius * radius {
+                if i64::from(i) * i64::from(i) + i64::from(j) * i64::from(j) <= radius_sq {
                     new_points.push(Vector2::new(x, y));
                 }
             }
