@@ -210,8 +210,6 @@ impl PhysicsEngine {
             }
             if motor_enabled {
                 joint = joint
-                    // factor is just passed on verbatim as damping in RapierLib GenericJoint.set_motor()
-                    // 0.0 works as expected. Other settings can behave strangely.
                     .motor_velocity(JointAxis::AngX, motor_target_velocity, 0.0)
                     .motor_model(JointAxis::AngX, MotorModel::AccelerationBased)
                     .motor_max_force(JointAxis::AngX, motor_max_force);
@@ -355,16 +353,11 @@ impl PhysicsEngine {
             && let Some(joint) = physics_world.get_mut_joint(joint_handle)
             && let Some(joint) = joint.as_revolute_mut()
         {
-            // AccelerationBased is chosen for 2D joints to keep
-            // the numbers far smaller and provide invariant behaviour
-            // regardless of mass changes.
             joint.set_motor_model(MotorModel::AccelerationBased);
             joint.set_motor_max_force(Real::MAX);
             if angular_limit_enabled {
                 joint.set_limits([angular_limit_lower, angular_limit_upper]);
             } else {
-                // As far as I can see, there is no function to turn off limits
-                // but we can mask them off in the base generic joint bit flags
                 joint.data.limit_axes.remove(JointAxesMask::ANG_X);
             }
             if motor_enabled {
